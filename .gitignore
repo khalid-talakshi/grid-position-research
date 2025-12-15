@@ -1,0 +1,8 @@
+.venv
+.vscode
+*.csv
+grid-position-importance_files
+*.html
+*.pdf
+**/cache/
+*.lock
