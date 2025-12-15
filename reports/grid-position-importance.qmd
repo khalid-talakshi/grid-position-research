@@ -107,3 +107,11 @@ merged_data %>%
 ```
 
 From this we can see the distributions look similar, but there is less variation then the permanent circuits. This makes sense because we believe that there are less overtaking opportunities at street circuits than at permanent circuits, so there tends to be less movement from starting position and thus more concentration around the grid position.
+
+# 4 Modelling
+
+From our exploration we do see there is some relationship between grid position and the final race results. Referring back to our goal, we want to try and ascertain information about a couple effects. The first is the general effect of grid position on race results, alongside how other factors like circuit type affect it. The second is understanding the variance in results by grid position to understand how much do other factors like luck, strategy, and racecraft affect the final race results. The latter is a much harder problem to solve and by no means will this paper give us a comprehensive answer, but in our analysis we can find hints and clues as to the answer for that question. 
+
+## 4.1 Describing our Model
+
+
