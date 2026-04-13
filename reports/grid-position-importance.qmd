@@ -8,11 +8,14 @@ subtitle: Measuring the impact of grid position through a Bayesian lens
 #| echo: false
 #| output: false
 library(tidyverse)
+library(rjags)
 
 data = read_csv("../data/grid-results.csv")
 circuit_info = read_csv("../data/circuit-type.csv")
 
 merged_data = merge(data, circuit_info, by.x = "circuitId", by.y = "circuitId")
+
+probs = read_csv("../model/ordinal-logistic-grid-pos-probs.csv")
 ```
 
 # 1 Introduction
@@ -114,4 +117,75 @@ From our exploration we do see there is some relationship between grid position 
 
 ## 4.1 Describing our Model
 
+Our goal with this model is to understand the likelihood of finishing in position $y$ given that we start in position $x$, or in bayesian terms, we want to find $P(Y = y | X = x)$. In this case since $x$, $y$ are discrete variables between 1-20, we want a grid of probabilities for each combination of $x$ and $y$. For this we will use a latent ordinal model to compute these probabilities. The model is as follows:
+$$
+\begin{aligned}
+P(y_i = k | p_i) &\sim \text{Categorical}(p_{i,1}, p_{i,2}, ..., p_{i,20}) \\
+p_{i,k} &= P(y_i \leq k | x_i) - p(y_i \leq k-1 | x_i) \\
+P(y_i \leq k | x_i) &= \text{logistic}(c_k - \phi_i) \\
+\phi_i &= \beta \cdot z_i \\
+z_i &= \frac{x_i - \bar x}{\sigma_x}
+\end{aligned}
+$$
 
+Lets break this down step by step. At the highest level, we want the probability of finishing in position $y$ given that we start in position $x$. Both of these are ordinal discrete variables, so we use a categorical distribution to model the probability for for each position $x$. Each probability is uses the cumulative probablity of finishing lower than position $k$ minus the probabiltiy of finishing lower than $k-1$. The cumulative probability is modelled using the logistic link function on the difference between a cutpoint $c_k$ and a linear predictor $\phi_i$. This difference represents how hard it would be to get to that position. The linear predictor is the product of a coefficient $\beta$ and a standardized version of our grid position variable $z_i$. This allows us to remove the need for an intercept in our model, as the cutpoints will capture the baseline probabilities of finishing in each position, and $\beta$ will capture the effect of grid position on the probabilities. We can write this model in JAGS as follows:
+
+```{jags}
+model {
+  for (i in 1:N) {
+    phi[i] <- beta * grid_z[i]
+
+    for (k in 1:(K-1)) {
+      cum_p[i, k] <- ilogit(cutpoint[k] - phi[i])
+    }
+
+    p[i, 1] <- cum_p[i, 1]
+    
+    for (k in 2:(K-1)) {
+      p[i, k] <- cum_p[i, k] - cum_p[i, k-1]
+    }
+
+    p[i, K] <- 1 - cum_p[i, K-1]
+
+    classification[i] ~ dcat(p[i, 1:K])
+  }
+
+  beta ~ dnorm(0, 1)
+
+  cutpoint[1] ~ dnorm(mu_cut[1], tau_cut)
+
+  for (k in 2:(K-1)) {
+    cutpoint[k] ~ dnorm(mu_cut[k], tau_cut) T(cutpoint[k-1], )
+  }
+}
+
+```
+
+We set up priors on $\beta$ and the cutpoints. For $\beta$ we used a non-informative normal prior with mean 0 and standard deviation 1. For the cutpoints we used a non-informative normal prior, but we trunkate teh distribution to ensure the cutpoints are ordered. We also set up some hyperpriors for the cutpoints, but we will not go into those details here.
+
+## 4.2 Understanding the Outputs
+After running the model, we get a posterior probability distribution for our grid to classification properties. We also have a posterior distribution for $\beta$, which is the effect of grid position on the probabilities. We can use these outputs to generate some insights on the importa
+
+```{r}
+#| echo: false
+#| message: false
+#| fig-height: 5.5
+#| fig-width: 10
+#| fig-cap: "Probability of Finishing in Position given Grid Position X"
+
+ggplot() +
+  geom_line(data = probs, aes(x = grid_position, y = probability)) +
+  facet_wrap(~ finish_position, ncol = 4) 
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| fig-height: 5.5
+#| fig-width: 10
+#| fig-cap: "Finishing Probability for Each Finishing Position by Grid Position"
+
+ggplot() +
+  geom_line(data = probs, aes(x = finish_position, y = probability)) +
+  facet_wrap(~ grid_position, ncol = 4) 
+```
