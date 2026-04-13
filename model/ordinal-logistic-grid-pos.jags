@@ -1,0 +1,49 @@
+model {
+  # -------------------------------------------------------------------------
+  # Cumulative ordered-logistic regression: grid position -> finish position
+  #
+  # Model:
+  #   P(finish <= k | grid_z[i]) = ilogit(cutpoint[k] - phi[i])
+  #   phi[i] = beta * grid_z[i]   (z-scored predictor, no intercept needed)
+  #   finish[i] ~ dcat(p[i, 1:K])
+  #
+  # Priors (mirror PyMC model):
+  #   beta            ~ Normal(0, 1)        [precision = 1]
+  #   cutpoint[1]     ~ Normal(mu_cut[1], tau_cut)
+  #   cutpoint[k]     ~ Normal(mu_cut[k], tau_cut) T(cutpoint[k-1], )
+  # -------------------------------------------------------------------------
+
+  for (i in 1:N) {
+    # Linear predictor (z-scored grid position, no intercept)
+    phi[i] <- beta * grid_z[i]
+
+    # Cumulative probabilities: P(finish <= k) via logistic CDF
+    for (k in 1:(K-1)) {
+      cum_p[i, k] <- ilogit(cutpoint[k] - phi[i])
+    }
+
+    # Cell probabilities: P(finish = k)
+    p[i, 1] <- cum_p[i, 1]
+    for (k in 2:(K-1)) {
+      p[i, k] <- cum_p[i, k] - cum_p[i, k-1]
+    }
+    p[i, K] <- 1 - cum_p[i, K-1]
+
+    # Categorical likelihood (1-indexed finish position)
+    classification[i] ~ dcat(p[i, 1:K])
+  }
+
+  # -------------------------------------------------------------------------
+  # Priors
+  # -------------------------------------------------------------------------
+
+  # Grid effect: positive beta -> higher grid number -> worse finish
+  beta ~ dnorm(0, 1)
+
+  # Ordered cutpoints via truncated normals
+  # mu_cut[k] and tau_cut are supplied as data from R (linspace(-2, 2, K-1))
+  cutpoint[1] ~ dnorm(mu_cut[1], tau_cut)
+  for (k in 2:(K-1)) {
+    cutpoint[k] ~ dnorm(mu_cut[k], tau_cut) T(cutpoint[k-1], )
+  }
+}
