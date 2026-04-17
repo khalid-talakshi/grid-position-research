@@ -77,10 +77,10 @@ init_chain <- function() {
 # Runtime note: ~60 iter/sec on a modern laptop.
 # Defaults below (~2 min): n.chains=2, adapt=500, burn=1000, iter=2000.
 # For production increase n.chains to 4 and n.iter to 5000 (~6 min).
-N_CHAINS <- 3
+N_CHAINS <- 4
 N_ADAPT  <- 500
-N_BURNIN <- 1000
-N_ITER   <- 5000
+N_BURNIN <- 2000
+N_ITER   <- 10000
 N_THIN   <- 1
 
 cat("\n--- Compiling model ---\n")
@@ -117,6 +117,9 @@ cat("(Middle cutpoints may be mildly elevated [~1.05] due to slow JAGS mixing\n"
 cat(" with truncated-normal ordering priors. Run 4 chains for production.)\n\n")
 gelman_diag <- gelman.diag(samples_coda, multivariate = FALSE)
 print(gelman_diag)
+mod_csim = do.call(rbind, samples_coda)
+raftery_diag <- raftery.diag(mod_csim)
+print(raftery_diag)
 
 # Summarise
 rhat_vals <- gelman_diag$psrf[, "Point est."]

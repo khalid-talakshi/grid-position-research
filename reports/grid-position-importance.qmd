@@ -164,7 +164,7 @@ model {
 We set up priors on $\beta$ and the cutpoints. For $\beta$ we used a non-informative normal prior with mean 0 and standard deviation 1. For the cutpoints we used a non-informative normal prior, but we trunkate teh distribution to ensure the cutpoints are ordered. We also set up some hyperpriors for the cutpoints, but we will not go into those details here.
 
 ## 4.2 Understanding the Outputs
-After running the model, we get a posterior probability distribution for our grid to classification properties. We also have a posterior distribution for $\beta$, which is the effect of grid position on the probabilities. We can use these outputs to generate some insights on the importa
+After running the model, we get a posterior probability distribution for our grid to classification properties. We also have a posterior distribution for $\beta$, which is the effect of grid position on the probabilities. We can use these outputs to generate some insights on the importance of grid position on classification position. First lets look at the probabilities. Below is 2 sets of figures, mapping grid to finish and vice versa. 
 
 ```{r}
 #| echo: false
@@ -189,3 +189,5 @@ ggplot() +
   geom_line(data = probs, aes(x = finish_position, y = probability)) +
   facet_wrap(~ grid_position, ncol = 4) 
 ```
+
+The graphs are quite similar, but they show us some unique patterns that emerge. In both graphs we see differences at the ends of the grid. Starting in first almost guarantees you will finish in the top 5
