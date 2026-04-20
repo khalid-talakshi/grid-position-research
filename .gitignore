@@ -9,3 +9,4 @@ grid-position-importance_files
 reports/*.quarto_ipynb*
 .opencode
 model/results/*.nc
+!circuit-type.csv
