@@ -6,3 +6,6 @@ grid-position-importance_files
 *.pdf
 **/cache/
 *.lock
+reports/*.quarto_ipynb*
+.opencode
+model/results/*.nc

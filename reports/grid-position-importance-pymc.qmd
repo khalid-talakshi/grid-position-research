@@ -1,0 +1,390 @@
+---
+title: The Importance of Grid Position in F1
+format:
+    pdf: 
+        toc: true
+        number-sections: true
+author: Khalid Talakshi
+subtitle: Measuring the impact of grid position through a Bayesian lens
+jupyter: grid-position
+---
+```{python}
+#| echo: false
+#| output: false
+import sys
+from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pymc as pm
+import arviz as az
+
+# Add model directory to path
+sys.path.insert(0, str(Path.cwd().parent))
+from model.shared import generate_prob_df, plot_heatmap
+from model.street import build_model as build_street_model
+from model.basic import build_model as build_basic_model
+
+data = pd.read_csv("../data/grid-results.csv")
+circuit_types = pd.read_csv("../data/circuit-type.csv")
+data["GridPosition"] = data["GridPosition"].astype("int")
+data["ClassifiedPosition"] = data["ClassifiedPosition"].astype("int")
+data["circuitType"] = data["circuitId"].map(circuit_types.set_index("circuitId")["trackType"])
+data["IsStreetCircuit"] = (data["circuitType"] == "street").astype("int")
+data["IsGroundEffect"] = (data["year"] >= 2022).astype("int")
+data[["GridPosition", "ClassifiedPosition", "IsStreetCircuit", "IsGroundEffect"]]
+
+grid_mean = data["GridPosition"].mean()
+grid_std = data["GridPosition"].std()
+grid_z = (data["GridPosition"] - grid_mean) / grid_std
+grid_z
+
+finishing_position = data["ClassifiedPosition"]
+finish_idx = finishing_position - 1
+finish_idx
+```
+
+# Introduction
+
+A wise Will Buxton once said "Qualifying is everything, because it determines you're starting position on the grid on Sunday. You want to start at the front, because it means you have the other 19 drivers sat behind you." This truly obvious statement has led to memes and jokes, yet it does pose a question underneath it. Since the inception of F1 in the 1950's, we have always had setup where a qualifying session would dictate the starting order of the race. It is as integral to the sport as the 3 outs in baseball or the offside rule in soccer. Without it, the sport drastically changes. The general understanding in F1 is that your qualifying position is as important, if not more, than your racing. However, we may want to know *how* important it is. Is it truly the be-all-end-all of the sport, or are there factors that affect the importance of it? Being able to quantify the affect of qualifying on race results can help us understand how to handle team management. Thanks to the power of Bayesian Analysis, we can help quantify the effect of different factors on the race results, opening up the door for strategic planning pre-race. In this paper, we will be attempting to answer the question of the importance of qualifying on race results using Bayseian anlaysis, with the hopes of drawing key insights on pre-race strategy and planning.
+
+# Background
+
+When F1 began its official format in 1950, we saw the introduction of an on-track qualifying. Before this, it was common to decide grid placement by random draw. Adding an on-track qualifying session meant more excitement for spectators while adding a new strategic element to the sport. As the years went on, the format of qualifying changed in various ways, with some changes for sporting reason while others for entertainment reasons. The first format to be introduced was simple, drivers got two sessions to set a fastest time and the grid was set based on fastest lap of each driver in either session. As the sport grew to be more spectator focused, this format fell flat as the second session could ultimately mean nothing. As time went on, modifications were added to the format to help increase exciment and generate more need for strategy, such as reducing qualifying from 2 sessions to 1, adding a one-shot appraoch (which lasted 1 year), and eliminations over sub-sessions. In 2010, we saw the introduction of the format we know today. Drivers would get 3 sub-sessions to set the fastest lap, with the bottom 5 being eliminated in the first 2 sessions and the top 10 being set in the last. On top of this we added time restrictions to each session, giving drivers 18, 15 and 12 minutes respectively to set times. This format is still used today, and is so ubiquoutus that when they tried to introduce a new format in 2021, the same model was followed to set the grid for a "Sprint Qualifying Race", a 100km dash where placement determined grid order. From 2022-2024 we saw some changes to how the Sprint Race format would be added to the calendar our standard qualifying format is still included in every race weekend, and even though it has its problems such as wait times between beginning and end of each sub-session to create the best conditions, alongside how penalties get applied, it is still the format of choice.
+
+Racing in F1 has also changed drastically due to technical regulation updates. The "Formula" in Formula 1 refers to a technical specification that is used to determine how constructors build their cars. Every so often the FIA, the governing body of F1, will update this formula to help address problems within the sport, account for new technology and create competitive balance. Some notable changes have included the move from larger to smaller V6 engines, the importance of aerodynamic components, and electrical systems to generate more horsepower. Looking at cars from the mid 1900's to todays technical beasts, you can see they are larger, wider, and look drastically different with their front and rear wings. These regulations have had affects on racing, sometimes good and sometimes bad. Cars ultimately go much faster than their older counterparts, but the importance of aerodynamics has often led to issues in overtaking, which can lead to less on track action. A great example of such a technology is the Drag Reduction System (DRS). This would allow the rear wing to open, giving drivers less drag to help overtake on straights, but could only be used when a driver is within 1 second of the driver ahead. While we sometimes get amazing overtaking scenes, other times we see a line of 3 or more cars all with their rear wings open, forming what we know as a DRS train. If overtaking is harder, then there is less opportunities to gain places, once again placing more emphasis on the qualifying session for a good grid position.
+
+Not only have the cars changed in F1, but so too have the tracks. Back in the early days of F1, tracks were built where they could be, often times reusing old infrastructure to be remade into a track for racing. One such track is Silverstone in the UK, whose original purpose was an airfield during the second world war. As racing became more popular, more purpose built tracks were being built, such as Monza in italy and Spa-Francochamps in Beligum. As technical regulations changed, alongside sporting and safety rules, tracks had to adapt to include wider tracks, more run-off areas, and even medical facilites on site or with easy access. However, some tracks were unable to be updated due to physical limitations. On top of this, the sports historical significance meant the continued inclusion of certain tracks such as Monaco, a street circuit through the rich city. Street tracks like Monaco have taken up more and more of the calendar, and while they are often spectacles to behold, they come with the challenge of their layouts being built for everyday travel, not top speed racing. Marina Bay in Singapore and the Strip in Las Vegas look stunning, but with lots of square corners and narrow two lane streets, overtaking has become increasingly hard on those tracks. It is not uncommon to see only a handful of overtakes on tracks like those.
+
+All these factors come together to show that while the races is the final decider of the championship, the qualifying sessions are often important in how likely a driver is to win in the race. This is why understanding how much a grid position affects the race results is important to the overall team planning and strategy for a weekend.
+
+# Data and Exploration
+
+## Getting the Data
+
+F1 is a very data heavy sport, and we are lucky because in today's time there is so much data available to the average user. Not only are we able to analyze driver results, but can even use telementry and weather data to create more insights. However, this can often be an issue as well, creating analysis paralysis for people with all the information available. That is why it is important in breaking down what exactly we want to analyze and how we can get the data to do so. 
+
+Our first objective is to understand how a grid position in F1 affects the classified position at the conclusion of the race. As such we will need to collect data on each drivers grid position and where the finished in the race. Public racing records make this data collection easy, and there are two tools that can be used to help us collect this information: FastF1 and Jolpica (formely Ergast) API. FastF1 is a python pacakge that collects data from multiple sources and allows us to generate datasets for us to use. Jolpica is a publically avaialble F1 API that has historical data dating all the way back to the 1950s. For this exploration we will be using FastF1 as it abstracts away a lot of the data collection and joins we need, and under the hood uses Jolpica for some of its data.
+
+We will also be limiting our data collection to the years 2018-2024, reserving 2025 for validation. Our reason for this is due to a technical limitation of F1 data. Telemetry data, which is data about how the car moves and operates on a lap by lap basis, is only available for races from 2018 and beyond. While we aren't using telemetry explicitly, down the line we can open up opportunities for analysis with telemetry. On top of this there tends to be better data quality with 2018 and beyond as F1 opened more data streams to the public. Finally, when we talk about regualtions, 2018-2024 is split into two distinct regulation eras: The Turbo Hybrid Era from 2014-2021, and the Second Ground Effect Era from 2022-2025. The Turbo Hybrid Era is when engines were reduced from V8's to V6's, and the addition of electrical assists and drag reduction systems were added. This era is most notable for Mercedes domination by Lewis Hamilton, which often meant teams were racing hard for middle positions. The Second Ground Effect era is the reintroduction of Ground Effect, a floor system allowing cars to ride closer to the ground to reduce drag. The aerodynamics of the car became even more important in this era, spurred on by the engine development freeze to make way for new Engine regulations in 2026 and beyond. 
+
+From 2018-2024, we raced at 30 distinct tracks, ranging from narrow street circuits like Monaco to fast pace tracks like Austria to the historically significant like Silverstone. As part of our analysis, we want to determine how track types affect our probability. We can classify tracks in numerous ways such as distance, straight distance, corner radius, and so on. The easiest way to classify them is by whether they are street tracks or not. We manually went over all 30 tracks and determined whether each track was "permanent" or "street". 
+
+Our final data set will include the following columns: CircuitID, DriverID, Year, GridPosition, ClassifiedPosition and TrackType. To download this data, we can build a script in Python that leverages the FastF1 package to pull the data. Below is a script we can use to download all the data for a given year. Given API limitations, it is recommended you download the data on a per year basis, write them to a file, and combine them at the end. 
+
+```python
+def downalod_grid_position_data(year):
+    schedule = fastf1.get_event_schedule(year)
+    events = schedule.loc[schedule["EventFormat"] != "testing", "RoundNumber"]
+
+    for event in events:
+        event_race = fastf1.get_event(year, event).get_race()
+        event_race.load(
+            laps = False, 
+            telemetry=False, 
+            weather=False, 
+            messages=False
+        )
+
+        circuit_info = ergast.get_circuits(season = year, round = event)
+
+        event_results = event_race.results
+
+        grid_results = event_results.loc[
+            (event_results["Status"] == "Finished") & 
+            (event_results["GridPosition"] > 0),
+            ["GridPosition", "ClassifiedPosition", "DriverId"],
+        ]
+        grid_results["year"] = year
+        grid_results["circuitId"] = circuit_info['circuitId'].item()
+
+        df = grid_results if df is None else pd.concat([df, grid_results])
+```
+
+## Exploring the Data
+
+Our next step is to look at the data and help determine how we can model it in our Bayesian Framework. In general, we are going to want to look at a few key things, such as how does our data distribute, and how do those distributions compare under different factors. The first exploration is a general idea of how the data distributes. We can do this by generating a set of histograms to see how the classified positions distribute per grid position.
+
+```{python}
+#| echo: false
+plt.figure(figsize=(12, 8))
+for i in range(1, 21):
+    plt.subplot(4, 5, i)
+    subset = data[data["GridPosition"] == i]
+    plt.hist(subset["ClassifiedPosition"], bins=np.arange(0.5, 20.5, 1), density=True)
+    plt.title(f"Grid Position {i}")
+    plt.xlabel("Classified Position")
+    plt.ylabel("Density")
+plt.tight_layout()
+plt.show()
+```
+
+The histograms shows us a few key insights. The first is that we can see is that almost every position follows a normal distribution centered around the starting position. The implication without futher analysis is that grid position does matter if we want to keep the same position. We can also see that the variance increases as we go down in positions. This makes sense since there is a limit to how many positions you can gain or lose. Starting in 10th, you can gain up to 9 positions or lose up to 10 positions, but with being second you can only gain one and lose 18, so there tends to be more opportunities for position changes as we go down the order. Finally, we can see the count drops off significantly as we go down the order. This is due to the fact that we are using classified positions instead of finishing position. For example, a driver who is in 4th may crash out on the first lap, which would result in them having to retire. However, according to the timing charts before classification, they would have the shortest race distance completed and thus would appear 20th. We elimintated all drivers who didn't finish, and thus there are less finishers as we go down the order.
+
+Lets also split the data into our track types and determine if we can see some sort of effect on that variable. To do this we will generate a similar graph as above with some colouring to show the difference.
+
+```{python}
+#| echo: false
+fig, axes = plt.subplots(4, 5, figsize=(12, 8), sharex=True, sharey=True)
+axes = axes.ravel()
+
+for i in range(1, 21):
+    ax = axes[i - 1]
+    subset = data[data["GridPosition"] == i]
+
+    # Only label once (first subplot), suppress labels elsewhere
+    label_perm = "Permanent" if i == 1 else "_nolegend_"
+    label_street = "Street" if i == 1 else "_nolegend_"
+
+    ax.hist(
+        subset[subset["IsStreetCircuit"] == 0]["ClassifiedPosition"],
+        bins=np.arange(0.5, 20.5, 1), density=True, alpha=0.5, label=label_perm
+    )
+    ax.hist(
+        subset[subset["IsStreetCircuit"] == 1]["ClassifiedPosition"],
+        bins=np.arange(0.5, 20.5, 1), density=True, alpha=0.5, label=label_street
+    )
+
+    ax.set_title(f"Grid Position {i}")
+    ax.set_xlabel("Classified Position")
+    ax.set_ylabel("Density")
+
+# Grab handles from first axis and place one global legend
+handles, labels = axes[0].get_legend_handles_labels()
+fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
+
+# Leave room at top for legend
+fig.tight_layout(rect=[0, 0, 1, 0.94])
+plt.show()
+```
+
+From this we can see the distributions look similar, but there is less variation then the permanent circuits. This makes sense because we believe that there are less overtaking opportunities at street circuits than at permanent circuits, so there tends to be less movement from starting position and thus more concentration around the grid position.
+
+# A Basic Model 
+
+From our exploration we do see there is some relationship between grid position and the final race results. Referring back to our goal, we want to try and ascertain information about a couple effects. The first is the general effect of grid position on race results, alongside how other factors like circuit type affect it. The second is understanding the variance in results by grid position to understand how much do other factors like luck, strategy, and racecraft affect the final race results. The latter is a much harder problem to solve and by no means will this paper give us a comprehensive answer, but in our analysis we can find hints and clues as to the answer for that question. 
+
+## Describing Our Model
+
+To model this problem, we need to understand both the goal and the nature of the data. Our goal is to determine the effect of a grid position on the final outcome of the race. Specifically, we want to understand how likely a driver will finish in position Y given they start in grid box X. We also want to know how other factors such as track type and regulation era affect this probability. Lastly, we want to quantify this effect in terms of odds of change, that is to say if you start in 5th, what are the odds you will gain or lose a position.
+
+As for the nature of the data. We are working with a classification problem. However, this classification problem is not a binary nor categorical classification problem. Grid Positions and Classification Positions inheriently have some value to them. Finishing on the podium is much better than finishing outside of the points. and even closer finishing one place ahead can be worth even more in terms of points, prestige, and advantages. This tells us that we are looking at an ordinal based classifcation problem. After careful research, we settled on modelling our likelihood as an ordered logistic regression. In this form of regression, we use distinct cutpoints and a predictor to determine the probability of an observation falling into a category. This is done using the followoing function:
+
+$$
+\text{OridnalLogistic}(\eta, c) \sim f(k \mid \eta, c) = \left\{
+        \begin{array}{l}
+        1 - \text{logit}^{-1}(\eta - c_1)
+            \,, \text{if } k = 0 \\
+        \text{logit}^{-1}(\eta - c_{k - 1}) -
+        \text{logit}^{-1}(\eta - c_{k})
+            \,, \text{if } 0 < k < K \\
+        \text{logit}^{-1}(\eta - c_{K - 1})
+            \,, \text{if } k = K \\
+        \end{array}
+    \right.
+$$
+
+In this case, $k$ represents the classified position, $\eta$ is our predictor which is a function of our features and coefficients, and $c$ represents the cutpoints which are the thresholds for each category. For this now, we will need to determine our features and our priors. The model can be described as follows:
+
+$$
+\begin{aligned}
+    \text{ClassifiedPosition}_i &\sim \text{OrderedLogistic}(\eta_i, c) \\
+    \eta_i &= \beta \cdot \text{GridPositionNormalized}_i \\
+    \beta &\sim \text{Normal}(0, 5) \\
+    \text{GridPositionNormalized}_i &= \frac{\text{GridPosition}_i - \bar{\text{GridPosition}}}{\sigma(\text{GridPosition})} \\
+    c_k &\sim \text{Normal}(\mu_k, 1.5) \text{ for } k = 0, 1, ..., K - 1 \\
+    \mu_k &= -2 + \frac{4k}{K-1}, \quad k=0,1,\dots,K-1
+\end{aligned}
+$$
+
+The highlights here are the single feature $\beta$ and no intercept in the model. $\beta$ in this model represents the effect of a one standard deviation change in grid position, in log odds format. We achieve this by normalizing the grid positions which allows us intrepret $\beta$ as the effect of a one standard deviation change in grid position on the odds of finishing in a better classified position. This also will allow us to extend the model for new features. 
+
+For this project we are going to use PyMC and ArviZ to build and analyze our model. While there are many ways we can run an MCMC simulation, PyMC provides a nice abstraction for model building and ArViz provides great diagnostic tools and visualizaitons. Below is how we build our model in PyMC, and the graph of the model.
+
+```{python}
+K = int(finish_idx.max()) + 1
+
+with pm.Model() as model:
+    # data
+    pm.Data("grid_z", grid_z)
+
+    # priors
+    beta = pm.Normal("beta", mu=0, sigma=1)
+    cutpoints = pm.Normal(
+        "cutpoints",
+        mu=np.linspace(-2, 2, K - 1),
+        sigma=1.5,
+        transform=pm.distributions.transforms.ordered,
+        initval=np.linspace(-2, 2, K - 1),
+        shape=K - 1,
+    )
+
+    # Linear Predictor
+    phi = pm.Deterministic("phi", beta * grid_z)
+
+    # Likelihood
+    finish = pm.OrderedLogistic(
+        "finish", 
+        eta=phi, 
+        cutpoints=cutpoints, 
+        observed=finish_idx
+    )
+```
+
+```{python}
+#| echo: false
+pm.model_to_graphviz(model)
+```
+
+## Model Evaluation
+```{python}
+#| echo: false
+basic_model_idata = az.from_netcdf("../model/results/basic-grid-model.nc")
+```
+
+After running our MCMC simulation, we can look at the results and evaluate how our model did. We have two factors we can look at: beta and cutpoints. We will start by exploring $\beta$ both by evaluating and interpreting the value. $\beta$ in our model represents the effect of a one standard deviation change in grid position on the odds of finishing in a worse position. In this case positive means that as your grid slot get worse, your finishing position gets worse. On instinct alone you would expect $\beta$ to be positive, as a negative value would incentivies a worse grid position. To understand the value of $\beta$, we can look at the trace plot and summary statistics.
+
+### Evaluating $\beta$
+```{python}
+#| echo: false
+_ = az.plot_trace(
+    basic_model_idata,
+    var_names=["beta"],
+)
+plt.show()
+```
+```{python}
+#| echo: false
+az.summary(basic_model_idata, var_names=["beta"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
+```
+
+From the above, we see that the average value of $\beta$ is around 1.9. Interpreting this in terms of grid spots, we can translate the log odds into an odds ratio by taking the exponential of $\beta$ divided by the standard deviation of grid positions (around 5.7). Doing this shows us that moving back a position on the grid increases your odds of finishing in a worse position by 1.4 times.
+
+Another thing to note here is the distribution of $\beta$. While its average is 1.907, we see the 95% HDI ranges from 1.788 to 2.028, meaning there is a 95% probability that the true value of $\beta$ lies in this interval. In terms of grid position effects, this translates to 1.37 to 1.43 times increase in odds of finishing in a worse position, which is fairly narrow but not insignificant. It does seem like there is a way to narrow that margin down by accounting for other factors. 
+
+Finally we can use $\hat{r}$ to evaluate whether our model converged. $\hat{r}$ is a measure of how well the chains mixed, with values close to 1 indicating good convergence. In our case, we see that $\hat{r}$ is 1 for $\beta$, which indicates that our model converged well and we can trust the model is producing a well mixed result that we can trust from a bayesian standpoint, though not necessarily as an estimate.
+
+### Evaluating Cutpoints
+
+Our next step in evaluating the model is to look at the cutpoints produced by the MCMC process. The cutpoints here represent the thresholds for each classified position normalized by the predictor. Since we have 20 grid positions and 20 classified positions, we have 19 cutpoints, where `cutpoint[0]` represents the minimun threshold needed to achieve a prediction of first place. While we won't use our cutpoints in our evaluation of model viability, we can look at these cutpoints to see how well we are predicitng each position, and understand the gaps and mixing.
+```{python}
+#| echo: false
+_ = az.plot_trace(
+    basic_model_idata,
+    var_names=["cutpoints"],
+)
+plt.show()
+```
+```{python}
+#| echo: false
+az.summary(basic_model_idata, var_names=["cutpoints"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
+```
+
+Looking at these results, we immediately can pull out some useful information. As we can see the $\hat{r}$ is 1 for each cutpoint, meaning a good mixing and we can trust these outputs. Second is th shape of the cutpoints graph. Starting from the front of the grid, we see clear distinct gaps between threshold estimates. While this does mean that each position is distinct, there is missing coverage of certain points in our 95% HDI value for each cutpoint. One such example is the threshold for position 1 and 2. First place has a 97.5% HDI at -3.234, and second place has its 2.5% HDI at -2.588. This means that should we end up with a value between those two points, there is uncertainty in where this would like.
+
+On the opposite side of the graph, we see much shorter densities for our positions, and they overlap with each other, implying high uncertainty in our estimates for our thresholds at the end. However this is able to be explained away via eliminated data. In our data collection we removed all results that ended in a non classified position, and used classified position over final position. The reason we did this is because there is we wanted to eliminate potential miscalibration with large jumps due to retirements. For example, when a first place and second place driver crash and need to retire, they ultimately end up finishing the race as "Did Not Finish (DNF)", but would be in 20 or 19 for point tabulation (though that is 0 so means nothing). Since we eliminated those cases, most races actually didn't finish with a full grid, so there weren't as many data points for classified data points on the later end, as shown by the histogram below.
+
+```{python}
+#| echo: false
+plt.figure(figsize=(12, 4))
+plt.hist(data["ClassifiedPosition"], bins=np.arange(0.5, 20.5, 1))
+plt.title(f"Classified Positions")
+plt.xlabel("Classified Position")
+plt.ylabel("Density")
+plt.xticks(np.arange(1, 21, 1))
+plt.show()
+```
+
+Finally looking at the heights of the cutpoints we see an increasing density estimate for each cutpoint as we go down the grid, that turns in reverse and decreases roughly around cutpoint 5 (classified position 6). This is interesting to note as it means we have more confidence in how we classify the midfield rather than the front and back of grid. Whether this is because there are closer battles in the midfield, more races finishing with larger jumps, or a product of something else remains to be seen, but this pattern does imply that there is less deviation in the midfield. 
+
+## Model Results
+
+Our ultimate goal was to determine the probability of finsihing in position Y given we start in grid position X. To do this, we will use our model to generate posterior predictive samples, allowing us to generate a grid distribution of finishing Y given X. To do this we will do a grid exploration by generating a set of grid positions from 1 to 20 and then generate the cumulative probabilities of finishing in a position better than or equal to Y. Then we take the difference to get the probability of finishing at Position Y. 
+
+To generate these probabilities, we take the beta samples and cutpoint samples from our posterior, and then perform the following calculation for each grid position and classified position:
+$$P(Y = k \mid X) = \text{logit}^{-1}(\beta \cdot \text{GridPositionNormalized} - c_{k-1}) - \text{logit}^{-1}(\beta \cdot \text{GridPositionNormalized} - c_{k})$$
+
+After generating these probabilities, we can visualize them as a heatmap to understand how each grid position breaks down.
+
+```{python}
+#| echo: false
+prob_df = generate_prob_df(basic_model_idata, grid_mean, grid_std)
+plot_heatmap(prob_df)
+```
+
+An obvious pattern emerges when we plot the heatmap. A clear diagonal emerges starting at (1,1) and finishes at (20, 17). This is in line with our cutpoint analysis, and shows more variability in the midfield than at the front or back. Intuitively this makes sense, there is more battles happening in the midifield, leading to more variability in the results. 
+
+While the heatmap is a great visual, it can be hard to read the exact probabilities. To help with this, we can generate a pivot table to show the probabilities in a more readable format. Below is a matrix of grid probabilities (horizontal) and classified positions (vertical) with the values being the probability of finishing in that classified position given the grid position. In this matrix you can truly see the variability in the midfield in the way the spread goes down.
+
+```{python}
+#| echo: false
+display_df = prob_df.copy()
+display_df["Probability"] = np.round(display_df["Probability"] * 100).astype(int)
+pivot = display_df.pivot(index="ClassifiedPosition", columns="GridPosition", values="Probability")
+pivot.index.name = None
+pivot.columns.name = None
+pivot
+```
+
+# Extending the Model
+
+While our basic model gives us a good starting point, we will attempt to extend the model by including a new feature. In our exploration we saw there is a distribution difference between street circuits and permanent circuits, with street circuits having less variability. This often tends to be in the form of narrower streets and harsher corners, which leads to less overtaking and battles. 
+
+When we downloaded our dataset we created a feature to identify whether a track is a street circuit or not. We will add our feature to our linear predictor to help determine the effect of street circuits on probabilities. 
+
+## Describing Our Model
+To extend our model, we will be adding a new feature to our linear predictor. This is done by adding a new coefficient $\beta_{\text{street}}$. This coefficient is multiplied by the `IsStreetCircuit` feature, a binary encoded categorical variable that tells us if the circuit is conventional or street. The new linear predictor can be described as follows:
+$$
+\eta = \beta \cdot \text{GridPositionNormalized} + \beta_{\text{street}} \cdot \text{IsStreetCircuit}
+$$
+
+The rest of the model remains the same, with the same priors and likelihood, adding `beta_street` to our trace and summary with the same prior as `beta`.
+
+```{python}
+#| echo: false
+model = build_street_model(grid_z, finish_idx, data["IsStreetCircuit"])
+
+pm.model_to_graphviz(model)
+```
+
+## Model Evaluation
+```{python}
+#| echo: false
+street_model_idata = az.from_netcdf("../model/results/street-grid-model.nc")
+```
+
+Now that we have our new model, we can evaluate the results for both $\beta$ and $\beta_{\text{street}}$. From exploring our data, we are expecting that there is less variation in changes in positions, which would mean that $\beta_{\text{street}}$ should be negative, as it would decrease the effect of grid position on classified position. We can evaluate this by looking at the trace and summary statistics for $\beta_{\text{street}}$ along with $\beta$.
+
+### Evaluating $\beta$
+```{python}
+#| echo: false
+_ = az.plot_trace(
+    street_model_idata,
+    var_names=["beta"]
+)
+plt.show()
+```
+```{python}
+#| echo: false
+az.summary(street_model_idata, var_names=["beta"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
+```
+
+From this summary, we can see that $\beta$ is identical to our previous model, with the same standard deviation as well. This is a good sign as it means that our new feature is not taking away from the effect of grid position, and is instead accounting for some of the variance in the data that was previously being attributed to grid position.
+
+### Evaluating $\beta_{\text{street}}$
+```{python}
+#| echo: false
+_ = az.plot_trace(
+    street_model_idata,
+    var_names=["beta_street"]
+)
+plt.show()
+```
+```{python}
+#| echo: false
+az.summary(street_model_idata, var_names=["beta_street"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
+```
+
+From this summary we see that $\beta_{\text{street}}$ has a mean of 0.04. This is interesting as a positive value here implies that street circuits actaully have more risk of finishing in a worse position. Let's show this mathematically. We know that $\beta = 1.9$ results in approximately a 28% decrease in odds of finishing in a worse position when you move up a grid spot. If we add $\beta_{\text{street}}$, this changes your odds difference to 25%. This is a small difference but it does imply street circuits are slighlty more volatile for finishing position than conventional. Overall, this does show our basic model is about as good as our street model, and the new feature is not adjusting our results much. 
+
+# 
