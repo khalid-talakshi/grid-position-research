@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float]:
     grid = df["GridPosition"].to_numpy(dtype=float)
     finish = df["ClassifiedPosition"].to_numpy(dtype=int)
     is_street = df["IsStreetCircuit"].to_numpy(dtype=int)
+    is_ground_effect = (df["year"] >= 2022).astype(dtype=int)
 
     grid_mean = grid.mean()
     grid_std = grid.std()
@@ -38,7 +40,8 @@ def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float]:
         finish_0idx,
         grid_mean,
         grid_std,
-        is_street
+        is_street,
+        is_ground_effect,
     )
 
 
@@ -73,6 +76,7 @@ def generate_probabilities(
     grid_mean: float,
     grid_std: float,
     is_street: np.ndarray | None = None,
+    is_ground_effect: np.ndarray | None = None,
 ) -> np.ndarray:
     posterior = idata.posterior
     beta_samples = posterior["beta"].values.flatten()
@@ -84,6 +88,9 @@ def generate_probabilities(
     if is_street is not None:
         beta_street_samples = posterior["beta_street"].values.flatten()
         eta_samples += beta_street_samples * is_street
+    if is_ground_effect is not None:
+        beta_ground_effect_samples = posterior["beta_era"].values.flatten()
+        eta_samples += beta_ground_effect_samples * is_ground_effect
     cum_probs = ilogit(cutpoints_samples - eta_samples[:, np.newaxis])
     zeros = np.zeros((cum_probs.shape[0], 1))
     ones = np.ones((cum_probs.shape[0], 1))
@@ -114,13 +121,13 @@ def load_idata(path: Path) -> az.InferenceData:
     return az.from_netcdf(path)
 
 
-def plot_heatmap(prob_df: pd.DataFrame, out_path: Path | None = None) -> None:
+def plot_heatmap(prob_df: pd.DataFrame, out_path: Path | None = None, value: str = "Probability", color="Blues") -> None:
     pivot = prob_df.pivot(
-        index="ClassifiedPosition", columns="GridPosition", values="Probability"
+        index="ClassifiedPosition", columns="GridPosition", values=value
     )
 
     fig, ax = plt.subplots(figsize=(12, 8))
-    im = ax.imshow(pivot.values, aspect="auto", cmap="Blues", origin="upper")
+    im = ax.imshow(pivot.values, aspect="auto", cmap=color, origin="upper")
 
     ax.set_xticks(range(pivot.shape[1]))
     ax.set_xticklabels(pivot.columns)
@@ -142,35 +149,45 @@ def generate_prob_df(
     idata: az.InferenceData,
     grid_mean: float,
     grid_std: float,
-    include_street: bool = False,
+    model_type: Literal["basic", "street", "era"] = "basic",
 ) -> pd.DataFrame:
     grid_pos = np.arange(1, 21)  # Grid positions from 1 to 20
     prob_df = pd.DataFrame()
     grid_col = []
     classified_col = []
     is_street_col = []
+    is_ground_effect_col = []
     prob_col = []
 
-    def generate_record(is_street: int | None = None):
-        probs = generate_probabilities(idata, pos, grid_mean, grid_std, is_street)
+    def generate_record(
+        is_street: int | None = None, is_ground_effect: int | None = None
+    ) -> None:
+        probs = generate_probabilities(idata, pos, grid_mean, grid_std, is_street, is_ground_effect)
         for k in range(len(probs)):
             grid_col.append(pos)
             classified_col.append(k + 1)  # Convert back to 1-indexed
             is_street_col.append(is_street) if is_street is not None else None
+            is_ground_effect_col.append(
+                is_ground_effect
+            ) if is_ground_effect is not None else None
             prob_col.append(probs[k])
 
-
     for pos in grid_pos:
-        if include_street:
+        if model_type == "street":
             generate_record(is_street=1)
             generate_record(is_street=0)
+        elif model_type == "era":
+            generate_record(is_ground_effect=1)
+            generate_record(is_ground_effect=0)
         else:
             generate_record()
-        
+
     prob_df["GridPosition"] = grid_col
     prob_df["ClassifiedPosition"] = classified_col
-    if include_street:
+    if model_type == "street":
         prob_df["IsStreet"] = is_street_col
+    if model_type == "era":
+        prob_df["IsGroundEffect"] = is_ground_effect_col
     prob_df["Probability"] = prob_col
 
     return prob_df

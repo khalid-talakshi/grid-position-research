@@ -13,6 +13,7 @@ jupyter: grid-position
 #| output: false
 import sys
 from pathlib import Path
+from numpy.core.defchararray import join
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path.cwd().parent))
 from model.shared import generate_prob_df, plot_heatmap
 from model.street import build_model as build_street_model
 from model.basic import build_model as build_basic_model
+from model.era import build_model as build_era_model
 
 data = pd.read_csv("../data/grid-results.csv")
 circuit_types = pd.read_csv("../data/circuit-type.csv")
@@ -31,8 +33,8 @@ data["GridPosition"] = data["GridPosition"].astype("int")
 data["ClassifiedPosition"] = data["ClassifiedPosition"].astype("int")
 data["circuitType"] = data["circuitId"].map(circuit_types.set_index("circuitId")["trackType"])
 data["IsStreetCircuit"] = (data["circuitType"] == "street").astype("int")
-data["IsGroundEffect"] = (data["year"] >= 2022).astype("int")
-data[["GridPosition", "ClassifiedPosition", "IsStreetCircuit", "IsGroundEffect"]]
+data["IsGroundEffectEra"] = (data["year"] >= 2022).astype("int")
+data[["GridPosition", "ClassifiedPosition", "IsStreetCircuit", "IsGroundEffectEra"]]
 
 grid_mean = data["GridPosition"].mean()
 grid_std = data["GridPosition"].std()
@@ -326,7 +328,7 @@ pivot.columns.name = None
 pivot
 ```
 
-# Extending the Model
+# Accounting for Track Type
 
 While our basic model gives us a good starting point, we will attempt to extend the model by including a new feature. In our exploration we saw there is a distribution difference between street circuits and permanent circuits, with street circuits having less variability. This often tends to be in the form of narrower streets and harsher corners, which leads to less overtaking and battles. 
 
@@ -387,4 +389,109 @@ az.summary(street_model_idata, var_names=["beta_street"], hdi_prob=0.95)[['mean'
 
 From this summary we see that $\beta_{\text{street}}$ has a mean of 0.04. This is interesting as a positive value here implies that street circuits actaully have more risk of finishing in a worse position. Let's show this mathematically. We know that $\beta = 1.9$ results in approximately a 28% decrease in odds of finishing in a worse position when you move up a grid spot. If we add $\beta_{\text{street}}$, this changes your odds difference to 25%. This is a small difference but it does imply street circuits are slighlty more volatile for finishing position than conventional. Overall, this does show our basic model is about as good as our street model, and the new feature is not adjusting our results much. 
 
-# 
+# Analysis of Eras
+
+While our street model didn't provide anything substantial over our basic model, there is another effect we want to look at to get a better understanding of the importance of grid position. As we stated in our background, there are two distinct regulation eras in our data: The Turbo Hybrid Era from 2014-2021 and the Second Ground Effect Era from 2022-2025. One of the greatest debates that happens in era changes is how the new regulations affect the outcomes of racing. There are many goals with regulation changes, but specifically with the regulation changes that came in 2022, one of the most talked about goals was to improve racing by making it easier to follow and overtake. While we can evaluate this goal in many ways, our model and methodology provides a quantitative way to evaluate this, as we are able to determine the odds of a change in finishing position in each era. If the racing was closer in the second ground effect era, we should expect to see some decrease in the effect of grid position on finishing position. 
+
+## Describing Our Model
+
+Just like analyzing street circuits effect, we will be adding a new feature to our linear predictor to account for the effect of the era, encoded as a binary variable.  
+
+$$
+\eta = \beta \cdot \text{GridPositionNormalized} + \beta_{\text{era}} \cdot \text{IsGroundEffectEra}
+$$
+
+The rest of the model remains the same, with the same priors and likelihood, adding `beta_era` to our trace and summary with the same prior as `beta`.
+
+<!-- ```{python}
+#| echo: false
+era_model = build_era_model(grid_z, finish_idx, data["IsGroundEffectEra"])
+pm.model_to_graphviz(era_model)
+``` -->
+
+## Model Evaluation
+```{python}
+#| echo: false
+era_model_idata = az.from_netcdf("../model/results/era-grid-model.nc")
+era_prob_df = generate_prob_df(era_model_idata, grid_mean, grid_std, model_type="era")
+```
+
+### Evaluating $\beta$
+```{python}
+#| echo: false
+_ = az.plot_trace(
+    era_model_idata,
+    var_names=["beta"]
+)
+plt.show()
+```
+```{python}
+#| echo: false
+az.summary(era_model_idata, var_names=["beta"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
+```
+
+Just like our other $\beta$ values, we see that the value of $\beta$ is around 1.9, which is a good sign as it means our new feature isn't taking away from the effect of grid position, and is instead accounting for some of the variance in the data that was previously being attributed to grid position. However this $\beta$ is lower than our base model and street model, which implies a stronger account for variance in our other features. 
+
+### Evaluating $\beta_{\text{era}}$
+```{python}
+#| echo: false
+_ = az.plot_trace(
+    era_model_idata,
+    var_names=["beta_era"]
+)
+plt.show()
+```
+```{python}
+#| echo: false
+az.summary(era_model_idata, var_names=["beta_era"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
+```
+$\beta_{\text{era}}$ has a mean of 0.271, which is much larger than our 0.04 in our $\beta_{\text{street}}$. This implies that there is more volatility in placement in the second ground effect era than in the turbo hybrid era. To put this into perspective, a 1 place qualifying place increase (i.e. from 5th to 4th) in the turbo hybrid era would result in a 28% increase in odds in finishing in a better or same position. However, in the ground effect era this increase is about 5%, meaning that there is some increase in odds of success, but it is much smaller. This effect is much better seen as a visualization, so we can generate density plots of the probabilities for each era to see the difference. This is shown down below.  
+
+<!-- ```{python}
+#| echo: false
+ground_effect_prob_df = era_prob_df[era_prob_df["IsGroundEffect"] == 1]
+turbo_hybrid_prob_df = era_prob_df[era_prob_df["IsGroundEffect"] == 0]
+joined_prob_df = pd.merge(
+    ground_effect_prob_df, 
+    turbo_hybrid_prob_df, 
+    on=["GridPosition", "ClassifiedPosition"], 
+    suffixes=("_GroundEffect", "_TurboHybrid")
+)
+joined_prob_df["Probability_Difference"] = joined_prob_df["Probability_GroundEffect"] - joined_prob_df["Probability_TurboHybrid"]
+plot_heatmap(joined_prob_df, value="Probability_Difference", color="RdBu")
+``` -->
+
+```{python}
+#| echo: false
+# density plot of ground_effect_prob_df["Probability"] and turbo_hybrid_prob_df["Probability"] in matplotlib in a grid formation grouped by grid position, with a global legend and a title for each subplot. Show the density of ground effect in blue as a line and red for turbo hybrid as a line. Place the legend on the top center of the graph horizontally
+ground_effect_prob_df = era_prob_df[era_prob_df["IsGroundEffect"] == 1]
+turbo_hybrid_prob_df = era_prob_df[era_prob_df["IsGroundEffect"] == 0]
+
+plt.figure(figsize=(12, 8))
+for i in range(1, 21):
+    plt.subplot(5, 4, i)
+    subset_ground = ground_effect_prob_df[ground_effect_prob_df["GridPosition"] == i]
+    subset_turbo = turbo_hybrid_prob_df[turbo_hybrid_prob_df["GridPosition"] == i]
+    plt.plot(subset_ground["ClassifiedPosition"], subset_ground["Probability"], color="blue", label="Ground Effect")
+    plt.plot(subset_turbo["ClassifiedPosition"], subset_turbo["Probability"], color="red", label="Turbo Hybrid")
+    plt.title(f"Grid Position {i}")
+    plt.xlabel("Classified Position")
+    plt.ylabel("Probability")
+plt.legend(loc="upper center", ncol=2, frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+The blue line, representing ground effect, shows a few unique shapes in different positions. For example, in the first few grid positions, the curve is slightly flatter and wider, implying the effect of grid position is less pronounced. In the midfield, the curve appears more right shifted than the turbo hybrid, and it is slightly wider, implying that there is more change in the midfield than there was in the turbo hybrid era, and it is more likely to finish either on par or worse than they would in the turbo hybrid era. Finally, the backmarker positions have higher peaks than the turbo hybrid era, and while there is more overlap between eras, there is a higher probability of finishing worse than in the turbo hybrid era.
+
+Interpretting this is tricky, as many factors could be at play. The flatter curves can imply that there is less of an effect of grid position, which means racing is more competitive than it was in the turbo hybrid era. The wider curves also suggest this as well, as it would mean there is more movement from your grid position. However the right shifted curves could also imply that there is more difficulty in gaining positions.
+
+There is also a potential factor that we aren't accounting for: the evolution of the cars within a regulation. Car development is not limited within a regulation set, and we can see cars change drastically over the course of a regulation era. The teams learn as the season goes on, and that informs upgrade packages and improvements. Essentially we are looking at a combination of multiple iterations of cars in these eras, all of which could have some sort of effect on the racing. 
+
+# Conclusion
+
+Our goal was to determine how we can use a Bayesian framework to determine how a driver's grid position affects their classified position. In our analysis we found that by looking only at a drivers grid position, there is a clear effect on grid position that is nearly diagonal with some variance in the midfield. This means there is a strong relationship between grid position and classified position, with one standard deviation change in grid position resulting in an increase in odds of finshing in a worse position by 1.4 times. In our data we observed some differences in the distribution of street circuits and permanent circuits. Street circuits had tighter distributions, which we attributed to less overtaking opportunities on street circuits. However, analysis showed us there was not a signficant change in the odds between street and conventional circuits. Finally, we aimed to answer the question of competitiveness in the turbo hybrid era vs the second ground effect era. We found that there was a significant increase in the odds of finishing in a worse position in the second ground effect era, with a one standard deviation change in grid position resulting in a 1.8 times increase in odds of finishing in a worse position, compared to 1.4 times in the turbo hybrid era. This is a significant increase, and shows that there is more volatility in the second ground effect era than there was in the turbo hybrid era, which could be an indicator of more competitive racing or better calibre of cars.
+
+Bayesian modelling provides a powerful framework for quantifying both the effect and the uncertainty of that effect. Using MCMC simulations opens us up to working with complex models and distributions, allowing us to model real world situations more descriptively. In our case, using grid position as a base to determine win probability can be powerful tool for teams to understand the importance of qualifying. There are numerous other ways we can extend this model, such as more descriptions about track, qualitative features such as driver skill and ability, and environmental factors such as weather and tyre strategy. This model can also feed into a larger model for helping to predict race outcomes, or win probabiltiy. 
+
+The outcomes of this model show us some key things about how data can feed into every part of racing. Knowing that the race is more volatile in the second ground effect era may inform teams about strategy, car development, and even in race decisions. While we cannot win our points until Sunday, we can sure make sure we have the best chance of winning them on Saturday, and any team that fails to recognize the importance of grid position is leaving points on the table.
