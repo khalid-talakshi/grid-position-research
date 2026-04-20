@@ -43,7 +43,7 @@ def build_model(grid_z: np.ndarray, finish_idx: np.ndarray) -> pm.Model:
 
 if __name__ == "__main__":
     print("Loading data...")
-    grid_z, finish_0idx, grid_mean, grid_std, _= load_data(
+    grid_z, finish_0idx, grid_mean, grid_std, _, _ = load_data(
         Path("./data/grid-results.csv")
     )
 

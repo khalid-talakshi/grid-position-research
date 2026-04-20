@@ -49,7 +49,7 @@ def build_model(
 
 if __name__ == "__main__":
     print("Loading data...")
-    grid_z, finish_0idx, grid_mean, grid_std, is_street_circuit = load_data(
+    grid_z, finish_0idx, grid_mean, grid_std, is_street_circuit, _ = load_data(
         Path("./data/grid-results.csv")
     )
 
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     idata = sample_model(model)
     print("Model sampling completed!")
 
-    prob_df = generate_prob_df(idata, grid_mean, grid_std, include_street=True)
+    prob_df = generate_prob_df(idata, grid_mean, grid_std, model_type="street")
 
     print(prob_df[prob_df["GridPosition"] == 1])
 

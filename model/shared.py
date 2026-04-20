@@ -8,7 +8,7 @@ import pymc as pm
 import matplotlib.pyplot as plt
 
 
-def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float]:
+def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float, np.ndarray, np.ndarray]:
     df = pd.read_csv(csv_path)
     df = df.dropna(subset=["GridPosition", "ClassifiedPosition"])
     df = df.astype({"GridPosition": int, "ClassifiedPosition": int})
