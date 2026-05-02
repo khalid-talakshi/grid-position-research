@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -47,12 +47,12 @@ def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float, np.
 
 def sample_model(
     model: pm.Model,
-    draws: int = 2000,
-    tune: int = 1000,
+    draws: int = 4000,
+    tune: int = 2000,
     chains: int = 4,
     target_accept: float = 0.9,
-    seed: int = 42,
-) -> az.InferenceData:
+    seed: int = 19,
+) -> Tuple[az.InferenceData, az.InferenceData]:
     with model:
         idata = pm.sample(
             draws=draws,
@@ -63,7 +63,8 @@ def sample_model(
             progressbar=True,
         )
         pm.sample_posterior_predictive(idata, extend_inferencedata=True)
-    return idata
+        ppc = pm.sample_posterior_predictive(idata)
+    return idata, ppc
 
 
 def ilogit(x: np.ndarray) -> np.ndarray:
@@ -75,8 +76,8 @@ def generate_probabilities(
     grid_pos: np.ndarray,
     grid_mean: float,
     grid_std: float,
-    is_street: np.ndarray | None = None,
-    is_ground_effect: np.ndarray | None = None,
+    is_street: np.ndarray | int | None = None,
+    is_ground_effect: np.ndarray | int | None = None,
 ) -> np.ndarray:
     posterior = idata.posterior
     beta_samples = posterior["beta"].values.flatten()
@@ -114,11 +115,11 @@ def print_diagnostics(
 
 
 def save_idata(idata: az.InferenceData, path: Path) -> None:
-    idata.to_netcdf(path)
+    idata.to_netcdf(path.__str__())
 
 
 def load_idata(path: Path) -> az.InferenceData:
-    return az.from_netcdf(path)
+    return az.from_netcdf(path.__str__())
 
 
 def plot_heatmap(prob_df: pd.DataFrame, out_path: Path | None = None, value: str = "Probability", color="Blues") -> None:

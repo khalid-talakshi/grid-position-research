@@ -34,14 +34,13 @@ def build_model(grid_z: np.ndarray, finish_idx: np.ndarray) -> pm.Model:
             "finish",
             eta=eta,
             cutpoints=cutpoints,
-            observed=finish_0idx,
+            observed=finish_idx,
             dims="obs",
         )
 
     return model
 
-
-if __name__ == "__main__":
+def run_model():
     print("Loading data...")
     grid_z, finish_0idx, grid_mean, grid_std, _, _ = load_data(
         Path("./data/grid-results.csv")
@@ -52,7 +51,7 @@ if __name__ == "__main__":
     print("Model built successfully!")
 
     print("Sampling model...")
-    idata = sample_model(model)
+    idata, ppc = sample_model(model)
     print("Model sampling completed!")
 
     prob_df = generate_prob_df(idata, grid_mean, grid_std)
@@ -62,4 +61,9 @@ if __name__ == "__main__":
     print_diagnostics(idata)
 
     save_idata(idata, Path('./model/results/basic-grid-model.nc'))
+    save_idata(ppc, Path('./model/results/basic-grid-model-ppc.nc'))
+
+
+if __name__ == "__main__":
+    run_model()
 

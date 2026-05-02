@@ -47,7 +47,7 @@ def build_model(
     return model
 
 
-if __name__ == "__main__":
+def run_model():
     print("Loading data...")
     grid_z, finish_0idx, grid_mean, grid_std, is_street_circuit, _ = load_data(
         Path("./data/grid-results.csv")
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     print("Model built successfully!")
 
     print("Sampling model...")
-    idata = sample_model(model)
+    idata, ppc = sample_model(model)
     print("Model sampling completed!")
 
     prob_df = generate_prob_df(idata, grid_mean, grid_std, model_type="street")
@@ -68,3 +68,8 @@ if __name__ == "__main__":
     print_diagnostics(idata, var_names=["beta", "beta_street", "cutpoints"])
 
     save_idata(idata, Path("./model/results/street-grid-model.nc"))
+    save_idata(ppc, Path("./model/results/street-grid-model-ppc.nc"))
+
+
+if __name__ == "__main__":
+    run_model()

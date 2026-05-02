@@ -13,6 +13,7 @@ jupyter: grid-position
 #| output: false
 import sys
 from pathlib import Path
+from IPython.core.pylabtools import figsize
 from numpy.core.defchararray import join
 import matplotlib.pyplot as plt
 import numpy as np
@@ -162,6 +163,8 @@ plt.show()
 
 From this we can see the distributions look similar, but there is less variation then the permanent circuits. This makes sense because we believe that there are less overtaking opportunities at street circuits than at permanent circuits, so there tends to be less movement from starting position and thus more concentration around the grid position.
 
+\newpage
+
 # A Basic Model 
 
 From our exploration we do see there is some relationship between grid position and the final race results. Referring back to our goal, we want to try and ascertain information about a couple effects. The first is the general effect of grid position on race results, alongside how other factors like circuit type affect it. The second is understanding the variance in results by grid position to understand how much do other factors like luck, strategy, and racecraft affect the final race results. The latter is a much harder problem to solve and by no means will this paper give us a comprehensive answer, but in our analysis we can find hints and clues as to the answer for that question. 
@@ -242,6 +245,7 @@ pm.model_to_graphviz(model)
 ```{python}
 #| echo: false
 basic_model_idata = az.from_netcdf("../model/results/basic-grid-model.nc")
+basic_model_ppc = az.from_netcdf("../model/results/basic-grid-model-ppc.nc")
 ```
 
 After running our MCMC simulation, we can look at the results and evaluate how our model did. We have two factors we can look at: beta and cutpoints. We will start by exploring $\beta$ both by evaluating and interpreting the value. $\beta$ in our model represents the effect of a one standard deviation change in grid position on the odds of finishing in a worse position. In this case positive means that as your grid slot get worse, your finishing position gets worse. On instinct alone you would expect $\beta$ to be positive, as a negative value would incentivies a worse grid position. To understand the value of $\beta$, we can look at the trace plot and summary statistics.
@@ -260,11 +264,11 @@ plt.show()
 az.summary(basic_model_idata, var_names=["beta"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
 ```
 
-From the above, we see that the average value of $\beta$ is around 1.9. Interpreting this in terms of grid spots, we can translate the log odds into an odds ratio by taking the exponential of $\beta$ divided by the standard deviation of grid positions (around 5.7). Doing this shows us that moving back a position on the grid increases your odds of finishing in a worse position by 1.4 times.
+From the above, we see that the 95% probability of the value of $\beta$ lies within the interval [1.838, 2.059]. Interpreting this in terms of grid spots, we can translate the log odds into an odds ratio by taking the exponential of $\beta$ divided by the standard deviation of grid positions (around 5.7). Doing this shows us that moving back a position on the grid increases your odds of finishing in a worse position by is approximately 1.4. Given the range of $\beta$ in the 95% HDI, it does seem like there is a way to narrow that margin down by accounting for other factors. 
 
-Another thing to note here is the distribution of $\beta$. While its average is 1.907, we see the 95% HDI ranges from 1.788 to 2.028, meaning there is a 95% probability that the true value of $\beta$ lies in this interval. In terms of grid position effects, this translates to 1.37 to 1.43 times increase in odds of finishing in a worse position, which is fairly narrow but not insignificant. It does seem like there is a way to narrow that margin down by accounting for other factors. 
+We can use $\hat{r}$ to evaluate whether our model converged. $\hat{r}$ is a measure of how well the chains mixed, with values close to 1 indicating good convergence. In our case, we see that $\hat{r}$ is 1 for $\beta$, which indicates that our model converged well and we can trust the model is producing a well mixed result that we can trust from a bayesian standpoint, though not necessarily as an estimate.
 
-Finally we can use $\hat{r}$ to evaluate whether our model converged. $\hat{r}$ is a measure of how well the chains mixed, with values close to 1 indicating good convergence. In our case, we see that $\hat{r}$ is 1 for $\beta$, which indicates that our model converged well and we can trust the model is producing a well mixed result that we can trust from a bayesian standpoint, though not necessarily as an estimate.
+\newpage
 
 ### Evaluating Cutpoints
 
@@ -282,7 +286,7 @@ plt.show()
 az.summary(basic_model_idata, var_names=["cutpoints"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
 ```
 
-Looking at these results, we immediately can pull out some useful information. As we can see the $\hat{r}$ is 1 for each cutpoint, meaning a good mixing and we can trust these outputs. Second is th shape of the cutpoints graph. Starting from the front of the grid, we see clear distinct gaps between threshold estimates. While this does mean that each position is distinct, there is missing coverage of certain points in our 95% HDI value for each cutpoint. One such example is the threshold for position 1 and 2. First place has a 97.5% HDI at -3.234, and second place has its 2.5% HDI at -2.588. This means that should we end up with a value between those two points, there is uncertainty in where this would like.
+Looking at these results, we immediately can pull out some useful information. As we can see the $\hat{r}$ is 1 for each cutpoint, meaning a good mixing and we can trust these outputs. Second is the shape of the cutpoints graph. Starting from the front of the grid, we see clear distinct gaps between threshold estimates. While this does mean that each position is distinct, there is missing coverage of certain points in our 95% HDI value for each cutpoint. One such example is the threshold for position 1 and 2. First place has a 97.5% HDI at -3.234, and second place has its 2.5% HDI at -2.588. This means that should we end up with a value between those two points, there is uncertainty in where this would like.
 
 On the opposite side of the graph, we see much shorter densities for our positions, and they overlap with each other, implying high uncertainty in our estimates for our thresholds at the end. However this is able to be explained away via eliminated data. In our data collection we removed all results that ended in a non classified position, and used classified position over final position. The reason we did this is because there is we wanted to eliminate potential miscalibration with large jumps due to retirements. For example, when a first place and second place driver crash and need to retire, they ultimately end up finishing the race as "Did Not Finish (DNF)", but would be in 20 or 19 for point tabulation (though that is 0 so means nothing). Since we eliminated those cases, most races actually didn't finish with a full grid, so there weren't as many data points for classified data points on the later end, as shown by the histogram below.
 
@@ -298,6 +302,48 @@ plt.show()
 ```
 
 Finally looking at the heights of the cutpoints we see an increasing density estimate for each cutpoint as we go down the grid, that turns in reverse and decreases roughly around cutpoint 5 (classified position 6). This is interesting to note as it means we have more confidence in how we classify the midfield rather than the front and back of grid. Whether this is because there are closer battles in the midfield, more races finishing with larger jumps, or a product of something else remains to be seen, but this pattern does imply that there is less deviation in the midfield. 
+
+### Posterior Predictive and Residuals
+
+Final validation will come in the form of the postersior predictive and our residuals. The posterior predictive allows us to see how well our model predicts our data. We can look at the distribution of our posterior predictive and see how well it matches our observed. 
+```{python}
+#| echo: false
+
+_ = az.plot_ppc(basic_model_ppc, observed=True, figsize=(12, 4))
+
+for ax in plt.gcf().axes:
+    ax.set_xticks(np.arange(20))        # tick positions (0..19)
+    ax.set_xticklabels(np.arange(1, 21))# labels (1..20)
+    ax.set_xlabel("Finishing position")
+
+plt.show()
+```
+
+Our plot here shows a decent fit for our model, though not perfect. Compared to our mean PPC, we see our model is underestimating and overestimating certain positions in a pairwise fashion. While not as accurate, it does fit our real world assumptions about grid positions as well as the general shape of the distribution. Moving up or down one grid position is somewhat common, while dropping by more positions is less common. 
+
+The other way to validate our model is by looking at the residuals. Residuals allow us to see how our model is doing on a per data point, determining how far off our predictions are from our observed data. We can plot our residual error to determine how well our model is doing across all the positions.
+
+```{python}
+#| echo: false 
+pred_finish = basic_model_ppc.posterior_predictive["finish"].values  
+
+pred_mean = pred_finish.reshape(-1, pred_finish.shape[-1]).mean(axis=0)
+observed = finish_idx.values
+
+residuals = observed - pred_mean
+
+x_pos = pred_mean + 1
+
+fig, ax = plt.subplots(figsize=(12, 4))
+ax.scatter(x_pos, residuals, alpha=0.3)
+ax.axhline(0, color="red")
+ax.set_xlabel("Predicted Mean Finishing Position")
+ax.set_ylabel("Residual")
+ax.set_title("Residuals vs Predicted")
+plt.show()
+```
+
+Looking at the plot, we see that our residuals are distributed relatively evenly across the predicted values. We do see some underestimating near the front and some overestimating near the back, which is represententative of the fact our model is better at capturing the midfield than the front or back. Overall, while not a perfect model, it does a decent job at capturing the general shape of our data.
 
 ## Model Results
 
@@ -318,6 +364,8 @@ An obvious pattern emerges when we plot the heatmap. A clear diagonal emerges st
 
 While the heatmap is a great visual, it can be hard to read the exact probabilities. To help with this, we can generate a pivot table to show the probabilities in a more readable format. Below is a matrix of grid probabilities (horizontal) and classified positions (vertical) with the values being the probability of finishing in that classified position given the grid position. In this matrix you can truly see the variability in the midfield in the way the spread goes down.
 
+\newpage 
+
 ```{python}
 #| echo: false
 display_df = prob_df.copy()
@@ -327,6 +375,8 @@ pivot.index.name = None
 pivot.columns.name = None
 pivot
 ```
+
+\newpage
 
 # Accounting for Track Type
 
@@ -353,6 +403,7 @@ pm.model_to_graphviz(model)
 ```{python}
 #| echo: false
 street_model_idata = az.from_netcdf("../model/results/street-grid-model.nc")
+street_model_ppc = az.from_netcdf("../model/results/street-grid-model-ppc.nc")
 ```
 
 Now that we have our new model, we can evaluate the results for both $\beta$ and $\beta_{\text{street}}$. From exploring our data, we are expecting that there is less variation in changes in positions, which would mean that $\beta_{\text{street}}$ should be negative, as it would decrease the effect of grid position on classified position. We can evaluate this by looking at the trace and summary statistics for $\beta_{\text{street}}$ along with $\beta$.
@@ -387,7 +438,39 @@ plt.show()
 az.summary(street_model_idata, var_names=["beta_street"], hdi_prob=0.95)[['mean', 'sd', 'hdi_2.5%', 'hdi_97.5%', 'r_hat']]
 ```
 
-From this summary we see that $\beta_{\text{street}}$ has a mean of 0.04. This is interesting as a positive value here implies that street circuits actaully have more risk of finishing in a worse position. Let's show this mathematically. We know that $\beta = 1.9$ results in approximately a 28% decrease in odds of finishing in a worse position when you move up a grid spot. If we add $\beta_{\text{street}}$, this changes your odds difference to 25%. This is a small difference but it does imply street circuits are slighlty more volatile for finishing position than conventional. Overall, this does show our basic model is about as good as our street model, and the new feature is not adjusting our results much. 
+From this summary we see that $\beta_{\text{street}}$ lies somewhere between -0.185 and 0.148. With a mean near 0, it implies there is no major difference between the two types of circuits. This is a bit surprising as we expected there to be less variability in street circuits due to less overtaking opportunities. This implies that there is more at play than just the track layout and type. 
+
+### Posterior Predictive and Residuals
+
+Now to compare our model to our basic version, lets look at our posterior predictive and residuals to see if there is any improvement in our model fit.
+```{python}
+#| echo: false
+_ = az.plot_ppc(street_model_ppc, observed=True, figsize=(12, 4))
+for ax in plt.gcf().axes:
+    ax.set_xticks(np.arange(20))        # tick positions (0..19)
+    ax.set_xticklabels(np.arange(1, 21))# labels (1..20)
+    ax.set_xlabel("Finishing position")
+plt.show()
+```
+```{python}
+#| echo: false 
+pred_finish = street_model_ppc.posterior_predictive["finish"].values
+pred_mean = pred_finish.reshape(-1, pred_finish.shape[-1]).mean(axis=0)
+observed = finish_idx.values
+residuals = observed - pred_mean
+x_pos = pred_mean + 1
+fig, ax = plt.subplots(figsize=(12, 4))
+ax.scatter(x_pos, residuals, alpha=0.3)
+ax.axhline(0, color="red")
+ax.set_xlabel("Predicted Mean Finishing Position")
+ax.set_ylabel("Residual")
+ax.set_title("Residuals vs Predicted")
+plt.show()
+```
+
+Our graphs look fundamentally the same as our basic model, further implying that our street feature isn't adding much value to our model. This means that our basic model is the better choice as we are using one feature vs two features with no real improvement.  
+
+\newpage
 
 # Analysis of Eras
 
@@ -402,12 +485,6 @@ $$
 $$
 
 The rest of the model remains the same, with the same priors and likelihood, adding `beta_era` to our trace and summary with the same prior as `beta`.
-
-<!-- ```{python}
-#| echo: false
-era_model = build_era_model(grid_z, finish_idx, data["IsGroundEffectEra"])
-pm.model_to_graphviz(era_model)
-``` -->
 
 ## Model Evaluation
 ```{python}

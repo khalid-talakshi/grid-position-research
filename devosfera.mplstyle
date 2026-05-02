@@ -1,0 +1,78 @@
+# Devosfera Matplotlib Style
+# Dark theme matching the Devosfera blog design
+
+# Figure
+figure.facecolor: 111111
+figure.edgecolor: 333333
+figure.figsize: 10, 6
+figure.dpi: 100
+
+# Axes
+axes.facecolor: 111111
+axes.edgecolor: 333333
+axes.labelcolor: f5f5f5
+axes.axisbelow: True
+axes.grid: True
+axes.grid.axis: y
+axes.spines.left: True
+axes.spines.bottom: True
+axes.spines.top: False
+axes.spines.right: False
+axes.linewidth: 0.8
+axes.labelsize: 11
+axes.titlesize: 13
+axes.titleweight: bold
+axes.prop_cycle: cycler('color', ['3b82f6', 'a855f7', '60a5fa', 'ec4899', 'f59e0b', '10b981', '06b6d4', '8b5cf6'])
+
+# Grid
+grid.color: 333333
+grid.linestyle: -
+grid.linewidth: 0.5
+grid.alpha: 0.3
+
+# Legend
+legend.facecolor: 1a1a1a
+legend.edgecolor: 333333
+legend.framealpha: 0.95
+legend.fancybox: True
+legend.shadow: False
+legend.fontsize: 10
+legend.title_fontsize: 11
+legend.frameon: True
+
+# Ticks
+xtick.color: a0a0a0
+xtick.labelsize: 10
+xtick.major.size: 5
+xtick.minor.size: 2.5
+xtick.major.width: 0.8
+xtick.minor.width: 0.6
+xtick.direction: out
+
+ytick.color: a0a0a0
+ytick.labelsize: 10
+ytick.major.size: 5
+ytick.minor.size: 2.5
+ytick.major.width: 0.8
+ytick.minor.width: 0.6
+ytick.direction: out
+
+# Lines
+lines.linewidth: 2
+lines.markersize: 6
+lines.markeredgewidth: 0.5
+
+# Patches
+patch.linewidth: 0.5
+patch.edgecolor: 333333
+
+# Text
+text.color: f5f5f5
+font.size: 11
+font.family: monospace
+
+# Savefig
+savefig.facecolor: 111111
+savefig.edgecolor: 333333
+savefig.bbox: tight
+savefig.pad_inches: 0.1
