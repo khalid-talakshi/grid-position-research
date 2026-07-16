@@ -10,3 +10,5 @@ reports/*.quarto_ipynb*
 .opencode
 model/results/*.nc
 !circuit-type.csv
+.env
+__pycache__

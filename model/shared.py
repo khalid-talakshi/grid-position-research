@@ -1,14 +1,16 @@
 from pathlib import Path
 from typing import Literal, Tuple
 
+import arviz as az
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import arviz as az
 import pymc as pm
-import matplotlib.pyplot as plt
 
 
-def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float, np.ndarray, np.ndarray]:
+def load_data(
+    csv_path: Path,
+) -> tuple[np.ndarray, np.ndarray, float, float, np.ndarray, np.ndarray]:
     df = pd.read_csv(csv_path)
     df = df.dropna(subset=["GridPosition", "ClassifiedPosition"])
     df = df.astype({"GridPosition": int, "ClassifiedPosition": int})
@@ -47,8 +49,8 @@ def load_data(csv_path: Path) -> tuple[np.ndarray, np.ndarray, float, float, np.
 
 def sample_model(
     model: pm.Model,
-    draws: int = 4000,
-    tune: int = 2000,
+    draws: int = 2000,
+    tune: int = 1000,
     chains: int = 4,
     target_accept: float = 0.9,
     seed: int = 19,
@@ -115,14 +117,32 @@ def print_diagnostics(
 
 
 def save_idata(idata: az.InferenceData, path: Path) -> None:
-    idata.to_netcdf(path.__str__())
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # ArviZ writes group-by-group with h5netcdf and may open existing files in append mode.
+    # If a previous file is stale/corrupted, force a fresh write.
+    if path.exists():
+        path.unlink()
+
+    try:
+        idata.to_netcdf(path.__str__(), engine="h5netcdf", overwrite_existing=True)
+    except Exception:
+        # One retry with a clean target handles intermittent file-manager/cache issues.
+        if path.exists():
+            path.unlink()
+        idata.to_netcdf(path.__str__(), engine="h5netcdf", overwrite_existing=True)
 
 
 def load_idata(path: Path) -> az.InferenceData:
     return az.from_netcdf(path.__str__())
 
 
-def plot_heatmap(prob_df: pd.DataFrame, out_path: Path | None = None, value: str = "Probability", color="Blues") -> None:
+def plot_heatmap(
+    prob_df: pd.DataFrame,
+    out_path: Path | None = None,
+    value: str = "Probability",
+    color="Blues",
+) -> None:
     pivot = prob_df.pivot(
         index="ClassifiedPosition", columns="GridPosition", values=value
     )
@@ -163,7 +183,9 @@ def generate_prob_df(
     def generate_record(
         is_street: int | None = None, is_ground_effect: int | None = None
     ) -> None:
-        probs = generate_probabilities(idata, pos, grid_mean, grid_std, is_street, is_ground_effect)
+        probs = generate_probabilities(
+            idata, pos, grid_mean, grid_std, is_street, is_ground_effect
+        )
         for k in range(len(probs)):
             grid_col.append(pos)
             classified_col.append(k + 1)  # Convert back to 1-indexed
