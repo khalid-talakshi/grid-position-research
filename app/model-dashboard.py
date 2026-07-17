@@ -8,7 +8,7 @@ import numpy as np
 
 load_dotenv()
 
-db_url = os.environ.get("DB_URL", "")
+db_url = st.secrets["DB_URL"]
 
 conn = create_engine(db_url)
 
