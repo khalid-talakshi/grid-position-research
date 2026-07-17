@@ -1,12 +1,8 @@
 import streamlit as st
 import plotly.express as px
-from dotenv import load_dotenv
-import os
 import pandas as pd
 from sqlalchemy import create_engine
-import numpy as np
 
-load_dotenv()
 
 db_url = st.secrets["DB_URL"]
 
